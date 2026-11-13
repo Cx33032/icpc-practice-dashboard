@@ -1,0 +1,8 @@
+**/node_modules
+**/dist
+data
+.git
+.claude
+*.log
+Dockerfile
+docker-compose.yml

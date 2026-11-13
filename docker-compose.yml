@@ -1,0 +1,15 @@
+services:
+  icpc-practice:
+    build: .
+    image: icpc-practice:latest
+    container_name: icpc-practice
+    restart: unless-stopped
+    ports:
+      # Bound to localhost only: the app has no login and stores your LeetCode/Kattis cookies.
+      - "127.0.0.1:3001:3001"
+    volumes:
+      - icpc-data:/data
+    # The time zone for contests, the heatmap and "today" is set in the app (Accounts & settings).
+
+volumes:
+  icpc-data:

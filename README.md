@@ -22,6 +22,26 @@ For development with hot reload (UI on http://localhost:5173, API on 3001):
 npm run dev
 ```
 
+### With Docker
+
+```bash
+docker compose up -d --build
+```
+
+Open http://127.0.0.1:3001. Your data lives in the `icpc-data` Docker volume, so it survives rebuilds and restarts.
+The port is published on `127.0.0.1` only, because the app has no login and keeps your LeetCode/Kattis cookies. Don’t
+expose it to a network without putting authentication in front of it.
+
+- Update after pulling new code: `docker compose up -d --build`
+- Logs: `docker compose logs -f`
+- Back up: **Accounts & settings → Download backup** in the app
+
+Without Compose: `docker build -t icpc-practice .` then
+`docker run -d -p 127.0.0.1:3001:3001 -v icpc-data:/data --name icpc-practice icpc-practice`.
+
+To move existing data from a non-Docker install: in the old app use **Accounts & settings → Download backup**, then
+**Restore…** that file in the Docker app. Cookies aren’t in backups, so re-enter them afterwards.
+
 Then open **Accounts & settings**, link your handles, and press **Sync all** on the dashboard. On **Problems → Problem bank**,
 fetch the three problem sets once so the daily picks have something to choose from.
 

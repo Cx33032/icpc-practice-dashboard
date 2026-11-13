@@ -29,6 +29,7 @@ export interface Account {
   platform: Platform;
   handle: string;
   hasSecret: boolean;
+  secretOutdated?: boolean;
   profile: any;
   lastSyncAt: number | null;
 }

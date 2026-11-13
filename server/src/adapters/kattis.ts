@@ -1,12 +1,26 @@
 import { all, getSetting, run, setSetting, tx } from '../db.ts';
-import { getText, politeFetch } from '../http.ts';
+import { getText, HttpError } from '../http.ts';
 import { kattisRating, parseKattisDifficulty } from '../difficulty.ts';
 import { markSolved, problemUrl, upsertProblem } from '../store.ts';
 
 const BASE = 'https://open.kattis.com';
 
+/**
+ * The browser session cookie. (Older versions stored a .kattisrc `token`, but Kattis scopes token
+ * logins to submitting: every page read with one answers 403 "Access denied.")
+ */
 export interface KattisSecret {
-  token: string;
+  cookie?: string;
+  token?: string;
+}
+
+/** Accepts the bare KattisSiteCookie value, "KattisSiteCookie=…", or a whole pasted Cookie header. */
+export function parseKattisCookie(input: string): string | null {
+  const s = input.trim().replace(/^cookie:\s*/i, '');
+  if (!s) return null;
+  if (!s.includes('=')) return `KattisSiteCookie=${s}`;
+  const parts = s.split(/;\s*/).filter((p) => /^(KattisSiteCookie|EduSiteCookie)=/.test(p));
+  return parts.length ? parts.join('; ') : null;
 }
 
 function decode(s: string): string {
@@ -21,21 +35,6 @@ function decode(s: string): string {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-/** Logs in the way the official Kattis CLI does: username + the API token from your .kattisrc. */
-async function login(handle: string, secret: KattisSecret): Promise<string> {
-  const res = await politeFetch(`${BASE}/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ user: handle, token: secret.token, script: 'true' }),
-    redirect: 'manual',
-  });
-  const cookies = res.headers.getSetCookie().map((c) => c.split(';')[0]);
-  if (res.status >= 400 || !cookies.length) {
-    throw new Error('Kattis rejected the login. Check the username and the token from your .kattisrc file.');
-  }
-  return cookies.join('; ');
 }
 
 interface ParsedRow {
@@ -84,24 +83,49 @@ function saveRow(r: ParsedRow) {
   });
 }
 
+const COOKIE_HELP = 'Copy a fresh KattisSiteCookie from your browser (Accounts → Kattis → Session cookie).';
+
+function isLoggedIn(html: string): boolean {
+  return /href="\/logout"/.test(html) || !/>\s*Log in\s*</.test(html);
+}
+
+/** Classes on table rows and status-looking markup: what to look at when solved detection misses. */
+function rowDiagnostics(html: string): string {
+  const start = html.indexOf('data-cy="problems-table"');
+  const body = start >= 0 ? html.slice(start, start + 200_000) : '';
+  const trClasses = new Set([...body.matchAll(/<tr\s+class="([^"]*)"/g)].map((m) => m[1].trim() || '(empty)'));
+  const statusy = new Set([...body.matchAll(/class="([^"]*(?:solv|accept|status|tried|check)[^"]*)"/gi)].map((m) => m[1].trim()));
+  return `row classes: ${[...trClasses].slice(0, 6).join(' | ') || 'none'}; status-like classes: ${[...statusy].slice(0, 6).join(' | ') || 'none'}`;
+}
+
 /**
- * Walks every page of the problem list (≈66 pages). When a token is given we walk it logged in,
- * which is the only way Kattis exposes which problems you have solved.
+ * Walks every page of the problem list (≈66 pages). With your browser session cookie it walks
+ * the list logged in, which is the only way Kattis exposes which problems you have solved.
  */
 export async function crawlKattisProblems(cookie: string | null, report: (s: string) => void) {
   let page = 1;
   let total = 0;
+  let diagnostics = '';
   const solvedKeys: string[] = [];
   for (; page < 200; page++) {
     report(`Reading problem list page ${page}…`);
-    const html = await getText(`${BASE}/problems?page=${page}`, cookie ? { headers: { Cookie: cookie } } : {});
+    const html = await getText(`${BASE}/problems?page=${page}`, cookie ? { headers: { Cookie: cookie } } : {}).catch((e) => {
+      if (cookie && e instanceof HttpError && (e.status === 401 || e.status === 403)) {
+        throw new Error(`Kattis refused the session cookie (it may have expired, or you logged out). ${COOKIE_HELP}`);
+      }
+      throw e;
+    });
+    if (cookie && page === 1) {
+      if (!isLoggedIn(html)) throw new Error(`Kattis treated the session cookie as logged out. ${COOKIE_HELP}`);
+      diagnostics = rowDiagnostics(html);
+    }
     const rows = parseProblemRows(html);
     if (!rows.length) break;
     tx(() => rows.forEach(saveRow));
     for (const r of rows) if (r.solved) solvedKeys.push(r.key);
     total += rows.length;
   }
-  return { total, solvedKeys };
+  return { total, solvedKeys, diagnostics };
 }
 
 export async function fetchKattisBank(report: (s: string) => void) {
@@ -123,10 +147,14 @@ export async function syncKattis(handle: string, secret: KattisSecret | null, re
 
   let message = 'Profile updated';
   let solvedCount: number | null = null;
-  if (secret) {
-    report('Logging in…');
-    const cookie = await login(handle, secret);
-    const { solvedKeys } = await crawlKattisProblems(cookie, report);
+  if (secret?.token && !secret.cookie) {
+    throw new Error(
+      'Kattis API tokens (.kattisrc) can only submit solutions — Kattis answers “Access denied” to every page read with one. ' +
+        'Replace it with your browser session cookie under Accounts → Kattis.',
+    );
+  }
+  if (secret?.cookie) {
+    const { solvedKeys, diagnostics } = await crawlKattisProblems(secret.cookie, report);
     // The first crawl has no dates. After that, anything newly solved is dated to this sync.
     const baselineDone = getSetting('kattisBaseline') === handle;
     const known = new Set(all<{ problem_key: string }>("SELECT problem_key FROM solves WHERE platform = 'kattis'").map((r) => r.problem_key));
@@ -142,7 +170,7 @@ export async function syncKattis(handle: string, secret: KattisSecret | null, re
     if (solvedKeys.length) setSetting('kattisBaseline', handle);
     message = solvedKeys.length
       ? `${solvedKeys.length} solved problems found · ${fresh} new`
-      : 'Logged in, but no solved markers were found on the problem list. Use “Paste solved problems” on the Accounts page instead.';
+      : `Logged in, but no solved problems were recognised on the problem list (${diagnostics}). Use “Paste solved problems” for now.`;
   }
 
   const profile = {
@@ -154,7 +182,7 @@ export async function syncKattis(handle: string, secret: KattisSecret | null, re
     subdivision,
     university,
     solvedFromSite: solvedCount,
-    hasToken: !!secret,
+    hasToken: !!secret?.cookie,
   };
   run('UPDATE accounts SET profile = ?, last_sync_at = ? WHERE platform = ?', JSON.stringify(profile), Math.floor(Date.now() / 1000), 'kattis');
   return message;

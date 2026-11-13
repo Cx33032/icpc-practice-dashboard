@@ -7,7 +7,7 @@ import { addDays, today } from './dates.ts';
 import { listJobs, startJob } from './jobs.ts';
 import { fetchCodeforcesBank, syncCodeforces } from './adapters/codeforces.ts';
 import { fetchLeetCodeBank, parseLeetCodeCookie, syncLeetCode, type LeetCodeSecret } from './adapters/leetcode.ts';
-import { fetchKattisBank, syncKattis, type KattisSecret } from './adapters/kattis.ts';
+import { fetchKattisBank, parseKattisCookie, syncKattis, type KattisSecret } from './adapters/kattis.ts';
 import { summary, tagStats } from './stats.ts';
 import { todayPlan } from './recommend.ts';
 import { toIcs, upcomingContests } from './contests.ts';
@@ -40,10 +40,13 @@ app.put('/api/settings', (req, res) => {
 
 // ---------- accounts ----------
 function accountView(r: any) {
+  const secret = r.secret ? JSON.parse(r.secret) : null;
   return {
     platform: r.platform,
     handle: r.handle,
-    hasSecret: !!r.secret,
+    hasSecret: !!secret,
+    // Kattis tokens from older versions can't read pages; the UI asks for a cookie instead.
+    secretOutdated: r.platform === 'kattis' && !!secret?.token && !secret?.cookie,
     profile: r.profile ? JSON.parse(r.profile) : null,
     lastSyncAt: r.last_sync_at,
   };
@@ -61,8 +64,10 @@ app.put('/api/accounts/:platform', wrap((req, res) => {
     const s = parseLeetCodeCookie(req.body);
     if (!s) bad('Need both LEETCODE_SESSION and csrftoken');
     secret = JSON.stringify(s);
-  } else if (platform === 'kattis' && req.body?.token) {
-    secret = JSON.stringify({ token: String(req.body.token).trim() } satisfies KattisSecret);
+  } else if (platform === 'kattis' && req.body?.cookie) {
+    const cookie = parseKattisCookie(String(req.body.cookie));
+    if (!cookie) bad('Paste the KattisSiteCookie value (or the whole Cookie header) from a logged-in browser');
+    secret = JSON.stringify({ cookie } satisfies KattisSecret);
   }
   const switched = prev && prev.handle.toLowerCase() !== handle.toLowerCase();
   tx(() => {

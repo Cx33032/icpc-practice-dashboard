@@ -64,10 +64,14 @@ The cookie expires after a few weeks; sync will tell you when to replace it.
 **Kattis**: your username (as in `open.kattis.com/users/<name>`) gives score, rank, country and province.
 Kattis has no public list of a user’s solved problems. You have two options:
 
-1. Add the **token** from your `.kattisrc` file (download it from <https://open.kattis.com/download/kattisrc>, the same file the
-   Kattis submit tool uses). The app logs in the way the CLI does and reads the problem list as you (about 70 pages, a couple of minutes).
-   The first scan has no solve dates; problems newly solved after that are dated to the sync that found them.
+1. Add your **browser session cookie**: log in at open.kattis.com → developer tools → Application → Cookies → copy
+   `KattisSiteCookie`. The app reads the problem list as you (about 70 pages, a couple of minutes). The first scan has no solve
+   dates; problems newly solved after that are dated to the sync that found them. The cookie stops working if you log out of
+   Kattis in that browser.
 2. **Paste solved problems**: on the Kattis account card, paste problem ids or links, one per line.
+
+The `.kattisrc` API token does **not** work for this: Kattis scopes token logins to submitting, and answers
+“Access denied.” (HTTP 403) to every page read with one.
 
 ## Privacy
 
@@ -92,8 +96,8 @@ Environment variables: `PORT` (default 3001), `HOST` (default 127.0.0.1), `DATA_
 
 ## Known limitations
 
-- The Kattis token sign-in follows the official CLI’s login, but how solved problems are marked on the logged-in problem list
-  could not be checked without a real account. If a token sync reports “no solved markers were found”, use **Paste solved problems**
-  (and please fix the matcher in `server/src/adapters/kattis.ts → parseProblemRows`).
+- How Kattis marks solved problems on the logged-in problem list is detected heuristically. If a cookie sync says no solved problems
+  were recognised, its message lists the row classes it saw; adjust `parseProblemRows` in `server/src/adapters/kattis.ts`, and use
+  **Paste solved problems** meanwhile.
 - LeetCode without a cookie only sees recent accepted submissions, so its acceptance rate and failed attempts are incomplete.
 - Kattis and LeetCode pages are unofficial interfaces and may change.

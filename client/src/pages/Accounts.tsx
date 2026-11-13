@@ -25,8 +25,8 @@ const HELP: Record<Platform, { handle: string; placeholder: string; note: ReactN
     placeholder: 'from open.kattis.com/users/…',
     note: (
       <>
-        Kattis publicly shows only your score and rank. To pull your solved problems, add the API token from your <code>.kattisrc</code> file
-        (the same one the Kattis submit tool uses), or paste a list of solved problems.
+        Kattis publicly shows only your score and rank. To pull your solved problems, add the session cookie from a browser where
+        you are logged in to Kattis, or paste a list of solved problems.
       </>
     ),
   },
@@ -38,7 +38,7 @@ function AccountCard({ platform, account, onChange }: { platform: Platform; acco
   const [secretOpen, setSecretOpen] = useState(false);
   const [session, setSession] = useState('');
   const [csrf, setCsrf] = useState('');
-  const [token, setToken] = useState('');
+  const [kattisCookie, setKattisCookie] = useState('');
   const [pasteOpen, setPasteOpen] = useState(false);
   const [paste, setPaste] = useState('');
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -55,11 +55,11 @@ function AccountCard({ platform, account, onChange }: { platform: Platform; acco
     try {
       const body: Record<string, unknown> = { handle };
       if (platform === 'leetcode' && (session || csrf)) Object.assign(body, session.includes('=') ? { cookie: session } : { session, csrf });
-      if (platform === 'kattis' && token) body.token = token.replace(/^token:\s*/i, '');
+      if (platform === 'kattis' && kattisCookie) body.cookie = kattisCookie;
       await put(`/accounts/${platform}`, body);
       setSession('');
       setCsrf('');
-      setToken('');
+      setKattisCookie('');
       setSecretOpen(false);
       onChange();
       if (andSync) {
@@ -118,8 +118,9 @@ function AccountCard({ platform, account, onChange }: { platform: Platform; acco
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
             <div className="spread">
               <span className="small">
-                {platform === 'leetcode' ? 'Session cookie' : 'API token'}:{' '}
-                {account.hasSecret ? <span className="pill ok">saved</span> : <span className="pill grey">not set</span>}
+                Session cookie:{' '}
+                {account.secretOutdated ? <span className="pill red">old token, replace</span>
+                  : account.hasSecret ? <span className="pill ok">saved</span> : <span className="pill grey">not set</span>}
               </span>
               <div className="row" style={{ gap: 4 }}>
                 {account.hasSecret && <button className="btn ghost sm" onClick={clearSecret}>Remove</button>}
@@ -142,13 +143,17 @@ function AccountCard({ platform, account, onChange }: { platform: Platform; acco
             {secretOpen && platform === 'kattis' && (
               <div className="stack" style={{ gap: 8, marginTop: 10 }}>
                 <ol className="small muted" style={{ margin: 0, paddingLeft: 18 }}>
-                  <li>Log in at open.kattis.com.</li>
-                  <li>Download your config from <a className="link" href="https://open.kattis.com/download/kattisrc" target="_blank" rel="noreferrer">open.kattis.com/download/kattisrc</a>.</li>
-                  <li>Open it in a text editor and copy the value after <code>token:</code>.</li>
+                  <li>Log in at open.kattis.com in your browser.</li>
+                  <li>Open developer tools → Application → Cookies → https://open.kattis.com.</li>
+                  <li>Copy the value of <code>KattisSiteCookie</code>.</li>
                 </ol>
-                <input className="input mono" placeholder="token" value={token} onChange={(e) => setToken(e.target.value)} />
-                <span className="small muted">Used only to log in and read the problem list as you. Stored locally. A full scan reads about 70 pages and takes a couple of minutes.</span>
-                <button className="btn primary sm" style={{ alignSelf: 'flex-start' }} onClick={() => save()} disabled={!token}>Save token & sync</button>
+                <input className="input mono" placeholder="KattisSiteCookie value (or paste the whole Cookie header)" value={kattisCookie} onChange={(e) => setKattisCookie(e.target.value)} />
+                <span className="small muted">
+                  The <code>.kattisrc</code> token won’t work here: Kattis only lets it submit solutions. The cookie is used only to read the problem
+                  list as you, is stored in the local database, and stops working if you log out of Kattis in that browser. A full scan reads about 70 pages
+                  and takes a couple of minutes.
+                </span>
+                <button className="btn primary sm" style={{ alignSelf: 'flex-start' }} onClick={() => save()} disabled={!kattisCookie}>Save cookie & sync</button>
               </div>
             )}
           </div>

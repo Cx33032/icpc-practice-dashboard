@@ -61,7 +61,7 @@ function PlatformCard({ platform, account, solved }: { platform: Platform; accou
           <div className="value">{p?.score ?? '—'}<span className="small muted" style={{ fontWeight: 400 }}> score</span></div>
           <div className="hint">{p?.rank ? `Global rank ${Number(p.rank).toLocaleString('en-CA')}` : 'Unranked'}</div>
           <div className="hint">{[p?.subdivision, p?.country].filter(Boolean).join(', ') || '—'}{p?.university ? ` · ${p.university}` : ''}</div>
-          <div className="hint">{solved} solved tracked here{!p?.hasToken && <> · <Link className="link" to="/accounts">add token</Link></>}</div>
+          <div className="hint">{solved} solved tracked here{!p?.hasToken && <> · <Link className="link" to="/accounts">add session cookie</Link></>}</div>
         </>
       )}
     </div>
